@@ -5,6 +5,8 @@
 #include <d3dx9shader.h>
 #endif
 
+#include <stdexcept>
+
 using namespace std;
 
 // This is defined in the Windows 10 SDK, but seems not in the 8.0 SDK:

@@ -939,7 +939,7 @@ static bool supports_hash_tracking(ResourceHandleInfo *handle_info)
 	// support for them later, we should add a means to turn off the
 	// contamination detection on a per-resource type basis:
 	return (handle_info->type == D3D11_RESOURCE_DIMENSION_TEXTURE2D ||
-	        handle_info->type == D3D11_RESOURCE_DIMENSION_TEXTURE3D);
+		handle_info->type == D3D11_RESOURCE_DIMENSION_TEXTURE3D);
 }
 
 static bool GetResourceInfoFields(struct ResourceHashInfo *info, UINT subresource,

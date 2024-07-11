@@ -1129,6 +1129,22 @@ public:
 	void run(CommandListState*) override;
 };
 
+class StoreCommand : public CommandListCommand {
+public:
+	CommandListVariable* var;
+	ResourceCopyTarget src;
+	ResourceCopyOptions options;
+	int loc;
+
+	wstring ini_section;
+
+	StoreCommand() :
+		var(NULL)
+	{}
+
+	void run(CommandListState*) override;
+};
+
 class ClearViewCommand : public CommandListCommand {
 public:
 	ResourceCopyTarget target;

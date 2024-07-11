@@ -18,6 +18,8 @@
 #include "ShaderRegex.h"
 #include "cursor.h"
 
+#include "vector"
+
 #define INI_FILENAME L"d3dx.ini"
 
 // List all the section prefixes which may contain a command list here and
@@ -2655,6 +2657,9 @@ wchar_t *TextureOverrideIniKeys[] = {
 	L"expand_region_copy",
 	L"deny_cpu_read",
 	L"match_priority",
+	L"vertex_limit_raise",
+	L"vertex_stride",
+	L"vertex_limit",
 	TEXTURE_OVERRIDE_FUZZY_MATCHES,
 	TEXTURE_OVERRIDE_DRAW_CALL_MATCHES,
 	NULL
@@ -2820,6 +2825,16 @@ static void parse_texture_override_common(const wchar_t *id, TextureOverride *ov
 	override->width_multiply = GetIniFloat(id, L"width_multiply", 1.0f, NULL);
 	override->height_multiply = GetIniFloat(id, L"height_multiply", 1.0f, NULL);
 
+	if (GetIniBool(id, L"vertex_limit_raise", false, NULL) || wcsstr(override->ini_section.c_str(), L"VertexLimitRaise") != 0) {
+		override->byte_width = GetIniInt(id, L"vertex_stride", 0, NULL) * GetIniInt(id, L"vertex_limit", 0, NULL);
+		if (override->byte_width == 0) {
+			override->byte_width = 8388608;
+		}
+	}
+	else {
+		override->byte_width = 0;
+	}
+	
 	if (GetIniString(id, L"Iteration", 0, setting, MAX_PATH))
 	{
 		// TODO: This supports more iterations than the

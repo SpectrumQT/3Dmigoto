@@ -1,5 +1,6 @@
 // Include before util.h (or any header that includes util.h) to get pretty
 // version of LockResourceCreationMode:
+
 #include "lock.h"
 
 #include "D3D11Wrapper.h"
@@ -16,6 +17,8 @@
 // For windows shortcuts:
 #include <shobjidl.h>
 #include <shlguid.h>
+
+#include <stdexcept>
 
 // Flag introduced in Windows 10 Fall Creators Update
 // Someone was clearly on crack when they decided this flag was necessary

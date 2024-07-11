@@ -19,6 +19,8 @@
 #include "HackerDevice.h"
 #include "HackerContext.h"
 
+#include <stdexcept>
+
 #define MAX_SIMULTANEOUS_NOTICES 10
 
 static bool has_notice = false;

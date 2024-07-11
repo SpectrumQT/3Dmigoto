@@ -354,6 +354,60 @@ static bool AddCommandToList(CommandListCommand *command,
 	return true;
 }
 
+int find_local_variable(const wstring& name, CommandListScope* scope, CommandListVariable** var)
+{
+	CommandListScope::iterator it;
+
+	if (!scope)
+		return false;
+
+	if (name.length() < 2 || name[0] != L'$')
+		return false;
+
+	for (it = scope->begin(); it != scope->end(); it++) {
+		auto match = it->find(name);
+		if (match != it->end()) {
+			*var = match->second;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool declare_local_variable(const wchar_t* section, wstring& name,
+	CommandList* pre_command_list, const wstring* ini_namespace)
+{
+	CommandListVariable* var = NULL;
+
+	if (!valid_variable_name(name)) {
+		LogOverlay(LOG_WARNING, "WARNING: Illegal local variable name: [%S] \"%S\"\n", section, name.c_str());
+		return false;
+	}
+
+	if (find_local_variable(name, pre_command_list->scope, &var)) {
+		// Could allow this at different scope levels, but... no.
+		// You can declare local variables of the same name in
+		// independent scopes (if {local $tmp} else {local $tmp}), but
+		// we won't allow masking a local variable from a parent scope,
+		// because that's usually a bug. Choose a different name son.
+		LogOverlay(LOG_WARNING, "WARNING: Illegal redeclaration of local variable [%S] %S\n", section, name.c_str());
+		return false;
+	}
+
+	if (parse_command_list_var_name(name, ini_namespace, &var)) {
+		// Not making this fatal since this could clash between say a
+		// global in the d3dx.ini and a local variable in another ini.
+		// Just issue a notice in hunting mode and carry on.
+		LogOverlay(LOG_NOTICE, "WARNING: [%S] local %S masks a global variable with the same name\n", section, name.c_str());
+	}
+
+	pre_command_list->static_vars.emplace_front(name, 0.0f, VariableFlags::NONE);
+	pre_command_list->scope->front()[name] = &pre_command_list->static_vars.front();
+
+	return true;
+}
+
 static bool ParseCheckTextureOverride(const wchar_t *section,
 		const wchar_t *key, wstring *val,
 		CommandList *explicit_command_list,
@@ -888,6 +942,68 @@ bail:
 	return false;
 }
 
+bool ParseStoreCommand(const wchar_t* section,
+	const wchar_t* key, wstring* val,
+	CommandList* explicit_command_list,
+	CommandList* pre_command_list, CommandList* post_command_list,
+	const wstring* ini_namespace)
+{
+	StoreCommand* operation = new StoreCommand();
+	CommandListVariable* var = NULL;
+
+	size_t start = 0, end;
+	wstring sub;
+	wstring name;
+
+	wchar_t buf[MAX_PATH];
+	wchar_t* src_ptr = NULL;
+
+	for (int i = 0; i < 3; i++) {
+		end = val->find(L',', start);
+		sub = val->substr(start, end - start);
+		if (i == 0) {
+			if (!find_local_variable(sub, pre_command_list->scope, &var) &&
+				!parse_command_list_var_name(sub, ini_namespace, &var)) {
+				goto bail;
+			}
+
+			operation->var = var;
+		}
+		if (i == 1) {
+			if (sub.length() >= MAX_PATH)
+				goto bail;
+
+			wcsncpy_s(buf, sub.c_str(), MAX_PATH);
+			operation->options = parse_enum_option_string<wchar_t*, ResourceCopyOptions>
+				(ResourceCopyOptionNames, buf, &src_ptr);
+			if (!src_ptr)
+				goto bail;
+
+			if (!operation->src.ParseTarget(src_ptr, true, ini_namespace))
+				goto bail;
+
+		}
+		if (i == 2) {
+			try {
+				operation->loc = std::stoi(sub.c_str());
+			}
+			catch (...) {
+				goto bail;
+			}
+		}
+		if (end == wstring::npos)
+			break;
+		start = end + 1;
+	}
+
+	operation->ini_section = section;
+	return AddCommandToList(operation, explicit_command_list, pre_command_list, NULL, NULL, section, key, val);
+
+bail:
+	delete operation;
+	return false;
+}
+
 bool ParseCommandListGeneralCommands(const wchar_t *section,
 		const wchar_t *key, wstring *val,
 		CommandList *explicit_command_list,
@@ -949,6 +1065,10 @@ bool ParseCommandListGeneralCommands(const wchar_t *section,
 
 		if (!wcscmp(val->c_str(), L"draw_3dmigoto_overlay"))
 			return AddCommandToList(new Draw3DMigotoOverlayCommand(section), explicit_command_list, pre_command_list, NULL, NULL, section, key, val);
+	}
+
+	if (!wcscmp(key, L"store")) {
+		return ParseStoreCommand(section, key, val, explicit_command_list, pre_command_list, post_command_list, ini_namespace);
 	}
 
 	return ParseDrawCommand(section, key, val, explicit_command_list, pre_command_list, post_command_list, ini_namespace);
@@ -1324,6 +1444,45 @@ void DrawCommand::run(CommandListState *state)
 			else
 				COMMAND_LIST_LOG(state, "  Unable to determine index count\n");
 			break;
+	}
+}
+
+void StoreCommand::run(CommandListState* state)
+{
+	HackerContext* mHackerContext = state->mHackerContext;
+	ID3D11DeviceContext* mOrigContext1 = state->mOrigContext1;
+
+	D3D11_BUFFER_DESC desc;
+	D3D11_MAPPED_SUBRESOURCE map;
+	HRESULT hr;
+	ID3D11Resource* src_resource = NULL;
+	ID3D11Buffer* staging = NULL;
+	ID3D11View* src_view = NULL;
+	UINT stride = 0;
+	UINT offset = 0;
+	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+	UINT buf_src_size = 0;
+
+	src_resource = src.GetResource(state, &src_view, &stride, &offset, &format, &buf_src_size, NULL);
+
+	((ID3D11Buffer*)src_resource)->GetDesc(&desc);
+	desc.Usage = D3D11_USAGE_STAGING;
+	desc.BindFlags = 0;
+	desc.MiscFlags = 0;
+	desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+
+	LockResourceCreationMode();
+	hr = state->mHackerDevice->GetPassThroughOrigDevice1()->CreateBuffer(&desc, NULL, &staging);
+	UnlockResourceCreationMode();
+
+	if (!FAILED(hr)) {
+		mOrigContext1->CopyResource(staging, src_resource);
+		hr = mOrigContext1->Map(staging, 0, D3D11_MAP_READ, 0, &map);
+		if (!FAILED(hr)) {
+			var->fval = ((float*)map.pData)[loc];
+		}
+		mOrigContext1->Unmap(staging, 0);
+		staging->Release();
 	}
 }
 
@@ -3975,60 +4134,6 @@ bool parse_command_list_var_name(const wstring &name, const wstring *ini_namespa
 		return false;
 
 	*target = &var->second;
-	return true;
-}
-
-int find_local_variable(const wstring &name, CommandListScope *scope, CommandListVariable **var)
-{
-	CommandListScope::iterator it;
-
-	if (!scope)
-		return false;
-
-	if (name.length() < 2 || name[0] != L'$')
-		return false;
-
-	for (it = scope->begin(); it != scope->end(); it++) {
-		auto match = it->find(name);
-		if (match != it->end()) {
-			*var = match->second;
-			return true;
-		}
-	}
-
-	return false;
-}
-
-bool declare_local_variable(const wchar_t *section, wstring &name,
-		CommandList *pre_command_list, const wstring *ini_namespace)
-{
-	CommandListVariable *var = NULL;
-
-	if (!valid_variable_name(name)) {
-		LogOverlay(LOG_WARNING, "WARNING: Illegal local variable name: [%S] \"%S\"\n", section, name.c_str());
-		return false;
-	}
-
-	if (find_local_variable(name, pre_command_list->scope, &var)) {
-		// Could allow this at different scope levels, but... no.
-		// You can declare local variables of the same name in
-		// independent scopes (if {local $tmp} else {local $tmp}), but
-		// we won't allow masking a local variable from a parent scope,
-		// because that's usually a bug. Choose a different name son.
-		LogOverlay(LOG_WARNING, "WARNING: Illegal redeclaration of local variable [%S] %S\n", section, name.c_str());
-		return false;
-	}
-
-	if (parse_command_list_var_name(name, ini_namespace, &var)) {
-		// Not making this fatal since this could clash between say a
-		// global in the d3dx.ini and a local variable in another ini.
-		// Just issue a notice in hunting mode and carry on.
-		LogOverlay(LOG_NOTICE, "WARNING: [%S] local %S masks a global variable with the same name\n", section, name.c_str());
-	}
-
-	pre_command_list->static_vars.emplace_front(name, 0.0f, VariableFlags::NONE);
-	pre_command_list->scope->front()[name] = &pre_command_list->static_vars.front();
-
 	return true;
 }
 
