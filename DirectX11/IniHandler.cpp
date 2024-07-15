@@ -2652,14 +2652,13 @@ wchar_t *TextureOverrideIniKeys[] = {
 	L"height",
 	L"width_multiply",
 	L"height_multiply",
+	L"override_byte_stride",
+	L"override_vertex_count",
 	L"iteration",
 	L"filter_index",
 	L"expand_region_copy",
 	L"deny_cpu_read",
 	L"match_priority",
-	L"vertex_limit_raise",
-	L"vertex_stride",
-	L"vertex_limit",
 	TEXTURE_OVERRIDE_FUZZY_MATCHES,
 	TEXTURE_OVERRIDE_DRAW_CALL_MATCHES,
 	NULL
@@ -2806,6 +2805,42 @@ static void parse_fuzzy_numeric_match_expression(const wchar_t *setting, FuzzyMa
 		return parse_fuzzy_numeric_match_expression_error(ptr);
 }
 
+float GetConstantIniVariable(const wchar_t* section, const wchar_t* key, float def, bool* found)
+{
+	std::string tmp;
+	std::wstring var_name;
+	float ret = def;
+
+	if (found)
+		*found = false;
+
+	if (GetIniString(section, key, NULL, &tmp)) {
+
+		var_name = wstring(tmp.begin(), tmp.end());
+		wstring ini_namespace = ini_sections[section].ini_namespace;
+		CommandListVariables::iterator var = command_list_globals.end();
+
+		var = command_list_globals.find(get_namespaced_var_name_lower(var_name, &ini_namespace));
+
+		if (var != command_list_globals.end()) {
+			if (found)
+				*found = true;
+			ret = var->second.fval;
+		}
+		else {
+			ret = GetIniFloat(section, key, def, found);
+			if (found) {
+				if (ret != def)
+					*found = true;
+				else
+					IniWarning("WARNING: Constant variable %s is not defined!\n", tmp.c_str());
+			}
+		}
+	}
+
+	return ret;
+}
+
 static void parse_texture_override_common(const wchar_t *id, TextureOverride *override, bool register_command_lists)
 {
 	wchar_t setting[MAX_PATH];
@@ -2825,14 +2860,14 @@ static void parse_texture_override_common(const wchar_t *id, TextureOverride *ov
 	override->width_multiply = GetIniFloat(id, L"width_multiply", 1.0f, NULL);
 	override->height_multiply = GetIniFloat(id, L"height_multiply", 1.0f, NULL);
 
-	if (GetIniBool(id, L"vertex_limit_raise", false, NULL) || wcsstr(override->ini_section.c_str(), L"VertexLimitRaise") != 0) {
-		override->byte_width = GetIniInt(id, L"vertex_stride", 0, NULL) * GetIniInt(id, L"vertex_limit", 0, NULL);
-		if (override->byte_width == 0) {
-			override->byte_width = 8388608;
-		}
-	}
-	else {
-		override->byte_width = 0;
+	// Next 2 parameters are used to override byte_width on buffer creation
+	// byte_width = override_byte_stride * override_vertex_count
+	override->override_byte_stride = GetIniInt(id, L"override_byte_stride", -1, NULL);
+	override->override_vertex_count = (int)GetConstantIniVariable(id, L"override_vertex_count", -1.0f, &found);
+	// Fall back to 8MB buffer to mimic GIMI defaults when VertexLimitRaise is set in section header
+	if (override->override_vertex_count == -1 && wcsstr(override->ini_section.c_str(), L"VertexLimitRaise") != 0) {
+		override->override_byte_stride = 1;
+		override->override_vertex_count = 8388608;
 	}
 	
 	if (GetIniString(id, L"Iteration", 0, setting, MAX_PATH))

@@ -284,9 +284,10 @@ struct TextureOverride {
 	int format;
 	int width;
 	int height;
-	int byte_width;
 	float width_multiply;
 	float height_multiply;
+	int override_byte_stride;
+	int override_vertex_count;
 	std::vector<int> iterations;
 	bool expand_region_copy;
 	bool deny_cpu_read;
@@ -313,6 +314,8 @@ struct TextureOverride {
 		height(-1),
 		width_multiply(1.0),
 		height_multiply(1.0),
+		override_byte_stride(-1),
+		override_vertex_count(-1),
 		expand_region_copy(false),
 		deny_cpu_read(false),
 		filter_index(FLT_MAX),
