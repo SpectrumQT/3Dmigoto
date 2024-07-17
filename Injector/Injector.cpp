@@ -304,7 +304,7 @@ wchar_t* deduce_working_directory(wchar_t *setting, wchar_t dir[MAX_PATH])
 
 int main()
 {
-	char *buf, target[MAX_PATH], setting[MAX_PATH], module_path[MAX_PATH];
+	char *buf, target[MAX_PATH], setting[MAX_PATH], module_path[MAX_PATH], params[MAX_PATH];
 	wchar_t setting_w[MAX_PATH], working_dir[MAX_PATH], *working_dir_p = NULL;
 	DWORD filesize, readsize;
 	const char *ini_section;
@@ -399,8 +399,21 @@ int main()
 			wait_exit(EXIT_FAILURE, "Invalid launch setting\n");
 
 		working_dir_p = deduce_working_directory(setting_w, working_dir);
+		// Get launch_args from ini
+		if (find_ini_setting_lite(ini_section, "launch_args", params, MAX_PATH)) {
+			
+			printf("Using start args: \"%s\"\n", params);
+			// Convert from char -> wchar_t for ShellExecute
+			int size_needed = MultiByteToWideChar(CP_UTF8, 0, params, strlen(params), NULL, 0);
+			wchar_t* paramsb = new wchar_t[size_needed + 1];
+			MultiByteToWideChar(CP_UTF8, 0, params, strlen(params), paramsb, size_needed);
 
-		ShellExecute(NULL, NULL, setting_w, NULL, working_dir_p, SW_SHOWNORMAL);
+			ShellExecute(NULL, NULL, setting_w, paramsb, working_dir_p, SW_SHOWNORMAL);
+			delete[] paramsb;
+		}
+		else
+			ShellExecute(NULL, NULL, setting_w, NULL, working_dir_p, SW_SHOWNORMAL);
+		
 	} else {
 		printf("3DMigoto ready - Now run the game.\n");
 	}
