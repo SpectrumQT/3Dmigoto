@@ -175,8 +175,8 @@ static bool verify_intended_target(HINSTANCE our_dll)
 	bool rc = false;
 	char *buf;
 	const char *section;
-	char target[MAX_PATH];
-	wchar_t target_w[MAX_PATH];
+	char target[MAX_PATH], loader[MAX_PATH];
+	wchar_t target_w[MAX_PATH], loader_w[MAX_PATH];
 	size_t target_len, exe_len;
 	HANDLE f;
 
@@ -200,11 +200,17 @@ static bool verify_intended_target(HINSTANCE our_dll)
 	if (!_wcsicmp(our_path, exe_path))
 		return true;
 
+	// Allow our DLL to load if it's located in directory somewhere inside exe's directory tree
+	// It opens up possibilities for more complex file structure of injector apps
+	if (wcswcs(our_path, exe_path)) {
+		return true;
+	}
+
 	LogHooking("3DMigoto loaded from outside game directory\n"
 	           "Exe directory: \"%S\" basename: \"%S\"\n"
 	           "Our directory: \"%S\" basename: \"%S\"\n",
 		   exe_path, exe_basename, our_path, our_basename);
-
+	 
 	// Restore the path separator so we can include game directories in the
 	// comparison in the event that the game's executable name is too
 	// generic to match by itself:
@@ -259,6 +265,16 @@ static bool verify_intended_target(HINSTANCE our_dll)
 	section = find_ini_section_lite(buf, "loader");
 	if (!section)
 		goto out_free;
+
+	// Allow our DLL to load from any location as long as it's loaded by specified loader exe
+	if (find_ini_setting_lite(section, "loader", loader, MAX_PATH)) {
+		if (MultiByteToWideChar(CP_UTF8, 0, loader, -1, loader_w, MAX_PATH)) {
+			if (!_wcsicmp(exe_basename, loader_w)) {
+				rc = true;
+				goto out_free;
+			}
+		}
+	}
 
 	if (!find_ini_setting_lite(section, "target", target, MAX_PATH))
 		goto out_free;

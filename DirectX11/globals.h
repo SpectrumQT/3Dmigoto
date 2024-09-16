@@ -406,6 +406,7 @@ struct Globals
 	bool gReloadConfigPending;
 	bool gWipeUserConfig;
 	bool gLogInput;
+	bool gShowWarnings;
 	bool dump_all_profiles;
 	DWORD ticks_at_launch;
 
@@ -698,6 +699,7 @@ struct Globals
 		gWipeUserConfig(false),
 		user_config_dirty(0),
 		gLogInput(false),
+		gShowWarnings(true),
 		dump_all_profiles(false)
 	{
 		int i;

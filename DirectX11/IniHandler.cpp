@@ -235,15 +235,21 @@ static IniSections::iterator prefix_upper_bound(IniSections &sections, wstring &
 // eyes may be focussed elsewhere and may miss the notification message[s].
 static bool ini_warned = false;
 #define IniWarning(fmt, ...) do { \
-	ini_warned = true; \
-	LogOverlay(LOG_WARNING, fmt, __VA_ARGS__); \
+	if (G->gShowWarnings) { \
+		ini_warned = true; \
+		LogOverlay(LOG_WARNING, fmt, __VA_ARGS__); \
+	} \
 } while (0)
 #define IniWarningW(fmt, ...) do { \
-	ini_warned = true; \
-	LogOverlayW(LOG_WARNING, fmt, __VA_ARGS__); \
+	if (G->gShowWarnings) { \
+		ini_warned = true; \
+		LogOverlayW(LOG_WARNING, fmt, __VA_ARGS__); \
+	} \
 } while (0)
 #define IniWarningBeep() do { \
-	ini_warned = true; \
+	if (G->gShowWarnings) { \
+		ini_warned = true; \
+	} \
 } while (0)
 
 static void emit_ini_warning_tone()
@@ -4161,6 +4167,8 @@ void LoadConfigFile()
 
 	if (GetIniBool(L"Logging", L"debug_locks", false, NULL))
 		enable_lock_dependency_checks();
+
+	G->gShowWarnings = GetIniBool(L"Logging", L"show_warnings", true, NULL);
 
 	// [Include]
 	ParseIncludedIniFiles();
